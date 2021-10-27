@@ -1,3 +1,4 @@
+## https://maku77.github.io/python/syntax/const.html ##
 class _const:
     class ConstError(TypeError):
         pass

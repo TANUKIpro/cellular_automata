@@ -14,21 +14,22 @@ soil_representation = -1     # 配列内での表現値
 soil_depth          = 5      # 土の深さ
 
 trunk                      = 'trunk'
-trunk_DefoSize             = [1, 1, None, 1] # デフォルトのサイズパラメータ
+trunk_DefoSize             = [1, 1, None, 1] # デフォルトのサイズパラメータ [w, h, d, weight]
 trunk_representation       = 1               # 配列内での表現値
 trunk_LifeSpam             = float('inf')    # 寿命
 trunk_MentalStressCapacity = float('inf')    # メンタルストレス容量
 trunk_GrowthRate           = 0.8             # 成長率
-trunk_OccurrenceProb       = 1#0.7             # 生成確率
+trunk_OccurrenceProb       = 0.7             # 生成確率
 
 leaf                         = 'leaf'
-leaf_DefoSize                = [2, 1, None, 1] # デフォルトのサイズパラメータ
-leaf_representation          = 2               # 配列内での表現値
-leaf_LifeSpam                = 1000            # 寿命
-leaf_MentalStressCapacity    = 40              # メンタルストレス容量
-leaf_LightStressAccThreshold = 10              # 光由来のメンタルストレス受容閾値
-leaf_GrowthRate              = 0.5             # 成長率
+leaf_DefoSize                = [2, 1, None, 0.2] # デフォルトのサイズパラメータ [w, h, d, weight]
+leaf_representation          = 2                 # 配列内での表現値
+leaf_LifeSpam                = float('inf')      # 寿命
+leaf_MentalStressCapacity    = 40                # メンタルストレス容量
+leaf_LightStressAccThreshold = 10                # 光由来のメンタルストレス受容閾値
+leaf_GrowthRate              = 0.5               # 成長率
 leaf_OccurrenceProb          = 1- trunk_OccurrenceProb
+leaf_CutoffRatio             = 0.8
 
 # Cartesian coordinates --> Python coordinates
 def coordinateTranslator(targetHight, x, y, mode='CARTESIAN2PY'):
@@ -86,12 +87,18 @@ class Cell:
         if self.name == trunk:
             x, y = self.getTrunkCoordination()
             x, y = coordinateTranslator(targetHight, x, y)
-            _field_array[x, y] = trunk_representation
+            if self.survival:
+                _field_array[x, y] = trunk_representation
+            else:
+                _field_array[x, y] = nothing
         elif self.name == leaf:
             for cd in self.coordination:
                 x, y = cd
                 x, y = coordinateTranslator(targetHight, x, y)
-                _field_array[x, y] = leaf_representation
+                if self.survival:
+                    _field_array[x, y] = leaf_representation
+                else:
+                    _field_array[x, y] = nothing
         return _field_array
     
     # 成長用
@@ -107,12 +114,13 @@ class Cell:
             x, y = self.getTrunkCoordination()
             if self.age > 50:
                 if np.random.rand() <= trunk_GrowthRate:
-                    # 90%で上方向へ成長
+                    # 上方向へ成長
                     if np.random.rand() <= 0.5:
                         #上が0
                         if self.around_data[0][1] == nothing:
                             new_trunk = Cell(trunk, np.array([[x, y+1]]), trunk_DefoSize)
                             _cells_list.append(new_trunk)
+                    # 左右方向へ成長
                     else:
                         if np.random.rand() <= 0.5:
                             #左が0
@@ -158,18 +166,31 @@ class Cell:
 
     # 頭上の情報把握用
     def look_up(self, _field_array):
-        pass
+        x, y = coordinateTranslator(field_size, *self.getLeafCoordination())
+        overheads = _field_array[:,y][:x+1,:]
+        return overheads
         
-    # 日照把握用
-    def sunlight(self, _field_array):
-        if self.mame == leaf:
-            pass
+    # 光合成用
+    def feel_sunlight(self, _field_array):
+        if self.name == leaf:
+            overheads = self.look_up(_field_array)
+            shine = 0
+            for i in range(overheads.shape[1]):
+                ovhd = overheads[:,i]
+                _trunk_num = np.count_nonzero(ovhd==trunk_representation)
+                _leaf_num  = np.count_nonzero(ovhd==leaf_representation)
+                if _trunk_num >= 1:
+                    continue
+                elif _leaf_num >= 1:
+                    for _ in range(_leaf_num):
+                        shine += self.lightness*(1-leaf_CutoffRatio)
+            self.lightness = shine
     
     # seed(原点)から現在地までの距離
     def path_finder(self):
         pass
     
-    # ペナルティ部の更新用
+    # ペナルティ用
     def destruction(self):
         if self.name == trunk:
             # 寿命
@@ -178,9 +199,6 @@ class Cell:
             # 空中浮遊対策
             if np.count_nonzero(self.around_data==0) >= ((self.size_status[0]+2)*(self.size_status[1]+2))-1:
                 self.survival = False
-            # メンタルストレス死
-            if self.mentalStress > trunk_MentalStressCapacity:
-                self.survival = False
         elif self.name == leaf:
             # 寿命
             if self.age > leaf_LifeSpam:
@@ -188,30 +206,31 @@ class Cell:
             # 空中浮遊対策
             if np.count_nonzero(self.around_data==0) >= ((self.size_status[0]+2)*(self.size_status[1]+2))-1:
                 self.survival = False
-            # メンタルストレス死
+            # メンタルストレス死(日光不足)
             if self.mentalStress > leaf_MentalStressCapacity:
                 self.survival = False
             # 日照不足によるメンタルストレス増加
             if self.lightness < leaf_LightStressAccThreshold:
                 self.mentalStress += 1
-
-    # 消滅処理
-    def annihilation(self, _cells_list, _my_index, _field_array):
-        _x, _y = np.where(_field_array==1)
-        _coord_list = np.concatenate([_x.reshape(len(_x), 1), _y.reshape(len(_y), 1)], 1)
-        if np.any(_coord_list==self.coordination):
-            del _cells_list[_my_index]
-        return _cells_list
     
+    # セルのアップデート用
     def update(self, _cells_list, _my_index, _field_array):
-        self.age += 1
-        self.destruction()
+        # delet myself
+        if not self.survival:
+            del _cells_list[_my_index]
+        # 周辺確認
         self.look_around(_field_array)
+        # 加齢
+        self.age += 1
+        # 日光浴
+        self.feel_sunlight(_field_array)
+        # ペナルティ
+        self.destruction()
+        # 成長
         if self.name == trunk:
             _cells_list = self.generation(_cells_list)
+        # 描画
         _field_array = self.paint(_field_array)
-        #_cells_list = self.annihilation(_cells_list, _my_index, _field_array)
-
         return (_cells_list, _field_array)
 
 if __name__ == '__main__':
@@ -237,27 +256,36 @@ if __name__ == '__main__':
     try_num = 5000
     try:
         while True:
+            # end condition
+            columL = np.count_nonzero(field_array[:-soil_depth,0]!=nothing)
+            columR = np.count_nonzero(field_array[:-soil_depth,-1]!=nothing)
+            rowTop = np.count_nonzero(field_array[0]!=nothing)
+            if columL or columR or rowTop > 0:
+                break
+            if seed.age == try_num:
+                break
+            # update cells and field
             for index, cell in enumerate(cells_list):
-                # update cells and field
                 cells_list, field_array = cell.update(cells_list, index, field_array)
             # progress
-            print("\r"+str(seed.age), end='')
+            print("\r"+"PROGRESS : "+str(seed.age)+" / "+str(try_num), end='')
             # result animation
             if seed.age%50 == 0:
                 im = ax.matshow(field_array)
                 fig_ims.append([im])
-            # end condition
-            if seed.age == try_num:
-                break
-
     finally:
         ## RESULT ##
         soil_num  = np.count_nonzero(field_array==soil_representation)
         trunk_num = np.count_nonzero(field_array==trunk_representation)
         leaf_num  = np.count_nonzero(field_array==leaf_representation)
+        trunk_weight = trunk_num*trunk_DefoSize[3]
+        leaf_weight  = leaf_num*leaf_DefoSize[3]
         print("\n")
-        print("TOTAL INSTANCE : ", len(cells_list))
-        print("soil : {0} \ntrunk : {1} \nleaf : {2}".format(soil_num, trunk_num, leaf_num))
+        print("instance num : ", len(cells_list))
+        print("soil  : num={0}".format(soil_num))
+        print("trunk : num={0}, weight={1}".format(trunk_num, trunk_weight))
+        print("leaf  : num={0}, weight={1}".format(leaf_num, leaf_weight))
+        print("TOTAL : weight={0}".format(trunk_weight+leaf_weight))
     
         anim = animation.ArtistAnimation(fig, fig_ims)
         anim.save('/Users/ryotaro/Desktop/cellular_automata/test.mp4')
