@@ -1,14 +1,14 @@
 import pprint
-import threading
 
 import numpy as np
 from matplotlib import animation
 from matplotlib import pyplot as plt
 
 # <<global status>>
-field_size = 100 # フィールド一辺の大きさ
-nothing = 0
-ROUTE_COST = 1 # 全セル共通のルートコスト
+field_size = 100    # フィールド一辺の大きさ
+nothing = 0         # 空間の配列内での表現値
+ROUTE_COST = 1      # 全セル共通のルートコスト
+max_lightness = 100 # 最大光量
 
 soil = 'soil'
 soil_representation = -1     # 配列内での表現値
@@ -32,16 +32,6 @@ leaf_GrowthRate              = 0.5               # 成長確率
 leaf_OccurrenceProb          = 1- trunk_OccurrenceProb
 leaf_Transmittance           = 0.2               # 葉の透過率
 
-# Cartesian coordinates --> Python coordinates
-def coordinateTranslator(targetHight, x, y, mode='CARTESIAN2PY'):
-    if mode == 'CARTESIAN2PY':
-        trX = targetHight - y
-        trY = x
-    elif mode == 'PY2CARTESIAN':
-        trX = y
-        trY = targetHight - x
-    return (trX, trY)
-
 class Cell:
     global field_size
     global soil, soil_representation
@@ -63,7 +53,7 @@ class Cell:
         #self.physicalStress = 0
         
         # <<environmental　status>>
-        self.lightness = 100
+        self.lightness = max_lightness
     
     def __del__(self):
         pass
@@ -187,7 +177,9 @@ class Cell:
                 elif _leaf_num >= 1:
                     for _ in range(_leaf_num):
                         shine += self.lightness*leaf_Transmittance
-            self.lightness = shine
+                else:
+                    shine += 100
+            self.lightness = optionalNormalization(shine)
     
     # ペナルティ用
     def destruction(self):
@@ -212,25 +204,44 @@ class Cell:
             if self.lightness < leaf_LightStressAccThreshold:
                 self.mentalStress += 1
     
-    # セルのアップデート用
     def update(self, _cells_list, _my_index, _field_array):
+        self.age += 1
         # delet myself
         if not self.survival:
             del _cells_list[_my_index]
-        # 周辺確認
         self.look_around(_field_array)
-        # 加齢
-        self.age += 1
-        # 日光浴
         self.feel_sunlight(_field_array)
-        # ペナルティ
         self.destruction()
-        # 成長
         if self.name == trunk:
             _cells_list = self.generation(_cells_list)
-        # 描画
         _field_array = self.paint(_field_array)
         return (_cells_list, _field_array)
+
+# Cartesian coordinates --> Python coordinates
+def coordinateTranslator(targetHight, x, y, mode='CARTESIAN2PY'):
+    if mode == 'CARTESIAN2PY':
+        trX = targetHight - y
+        trY = x
+    elif mode == 'PY2CARTESIAN':
+        trX = y
+        trY = targetHight - x
+    return (trX, trY)
+
+# https://mathwords.net/dataseikika#_M_m
+def optionalNormalization(data, _m=0, _M=100):
+    x_min = 0#np.min(data)
+    x_max = 200#np.max(data)
+    return ((_M - _m)*(data - x_min) / (x_max - x_min)) + _m
+
+def getMyRouteArray(_field_array):
+    # 空の経路作成(幹のみ)
+    trunk_num = np.count_nonzero(_field_array==trunk_representation)
+    route_list = np.zeros((trunk_num, trunk_num))
+    # 経路作成の為のグリッドグラフ(上から順)
+    gldRow, gldCol = np.where(_field_array==trunk_representation)
+    gldCoordination = np.stack([gldRow, gldCol],1)
+
+
 
 
 ############### MAIN  ###############
@@ -258,8 +269,6 @@ if __name__ == '__main__':
     try_num = 2000
     try:
         while True:
-            # Build the route
-            route_list = np.zeros((len(cells_list), len(cells_list)))
             # end condition
             columL = np.count_nonzero(field_array[:-soil_depth,0]!=nothing)
             columR = np.count_nonzero(field_array[:-soil_depth,-1]!=nothing)
@@ -271,9 +280,15 @@ if __name__ == '__main__':
             if seed.age == try_num:
                 print("  <-- Successful termination")
                 break
+            
+            # 空の経路作成(幹のみ)
+            trunk_num = np.count_nonzero(_field_array==trunk_representation)
+            route_list = np.zeros((trunk_num, trunk_num))
+            # 経路作成の為のグリッドグラフ(上から順)
+            gldRow, gldCol = np.where(field_array==trunk_representation)
+            gldCoordination = np.stack([gldRow, gldCol],1)
+
             for index, cell in enumerate(cells_list):
-                # update route
-                #route_list[index] = cell.around_data[1] # <-- cell.around_data[1] is middle positions mean
                 # update cells and field
                 cells_list, field_array = cell.update(cells_list, index, field_array)
 
