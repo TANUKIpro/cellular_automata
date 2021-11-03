@@ -1,4 +1,5 @@
 import pprint
+import sys
 
 import numpy as np
 from matplotlib import animation
@@ -149,14 +150,6 @@ class Cell:
         
         self.around_data = np.array([upper, center, lower])
 
-    # ノイマン近傍
-    def getNeumannNeighborhood(self):
-        unnecessary = [0, -1]
-        neuman_upper  = np.delete(self.around_data[0], unnecessary)
-        neuman_center = self.around_data[1][unnecessary]
-        neuman_lower  = np.delete(self.around_data[2], unnecessary)
-        return np.array([neuman_upper, neuman_center, neuman_lower])
-
     # 頭上の情報把握用
     def look_up(self, _field_array):
         x, y = coordinateTranslator(field_size, *self.getLeafCoordination())
@@ -233,15 +226,12 @@ def optionalNormalization(data, _m=0, _M=100):
     x_max = 200#np.max(data)
     return ((_M - _m)*(data - x_min) / (x_max - x_min)) + _m
 
-def getMyRouteArray(_field_array):
-    # 空の経路作成(幹のみ)
-    trunk_num = np.count_nonzero(_field_array==trunk_representation)
-    route_list = np.zeros((trunk_num, trunk_num))
-    # 経路作成の為のグリッドグラフ(上から順)
-    gldRow, gldCol = np.where(_field_array==trunk_representation)
-    gldCoordination = np.stack([gldRow, gldCol],1)
-
-
+# ノイマン近傍
+def getNeumannNeighborhood(_x, _y, _field_array):
+    neuman_upper  = _field_array[_x-1, _y]
+    neuman_center = (_field_array[_x, _y-1], _field_array[_x, _y+1])
+    neuman_lower  = _field_array[_x+1, _y]
+    return neuman_upper, neuman_center, neuman_lower
 
 
 ############### MAIN  ###############
@@ -266,7 +256,7 @@ if __name__ == '__main__':
     fig_ims = []
     fig, ax = plt.subplots()
 
-    try_num = 2000
+    try_num = 5000
     try:
         while True:
             # end condition
@@ -282,12 +272,36 @@ if __name__ == '__main__':
                 break
             
             # 空の経路作成(幹のみ)
-            trunk_num = np.count_nonzero(_field_array==trunk_representation)
-            route_list = np.zeros((trunk_num, trunk_num))
-            # 経路作成の為のグリッドグラフ(上から順)
+            trunk_num = np.count_nonzero(field_array==trunk_representation)
+            route_array = np.zeros((trunk_num, trunk_num))
+            # グリッドグラフ作成
             gldRow, gldCol = np.where(field_array==trunk_representation)
             gldCoordination = np.stack([gldRow, gldCol],1)
-
+            for node_num, gld in enumerate(gldCoordination):
+                up, ct, lo = getNeumannNeighborhood(*gld, field_array)
+                ctL, ctR = ct
+                if up==trunk_representation:
+                    # < Coordinates of the upper in field array >
+                    upperFieldCoord = gld+[-1,0]
+                    # < Coordinates of the upper in grid array >
+                    upperRouteCoord = np.where(np.all(gldCoordination==upperFieldCoord, axis=1) == True)
+                    route_array[upperRouteCoord[0][0]][node_num] = 1
+                if lo==trunk_representation:
+                    lowerFieldCoord = gld+[1,0]
+                    lowerRouteCoord = np.where(np.all(gldCoordination==lowerFieldCoord, axis=1) == True)
+                    route_array[lowerRouteCoord[0][0]][node_num] = 1
+                if ctL==trunk_representation:
+                    ctLFieldCoord = gld+[0,-1]
+                    ctLRouteCoord = np.where(np.all(gldCoordination==ctLFieldCoord, axis=1) == True)
+                    route_array[ctLRouteCoord[0][0]][node_num] = 1
+                if ctR==trunk_representation:
+                    ctRFieldCoord = gld+[0,1]
+                    ctRRouteCoord = np.where(np.all(gldCoordination==ctRFieldCoord, axis=1) == True)
+                    route_array[ctRRouteCoord[0][0]][node_num] = 1
+            
+            #pySeedCoordination = coordinateTranslator(field_size, *seed.coordination[0])
+            #seed_index = np.where(np.all(gldCoordination==pySeedCoordination, axis=1)==True)
+            #print(seed_index, route_array[seed_index])
             for index, cell in enumerate(cells_list):
                 # update cells and field
                 cells_list, field_array = cell.update(cells_list, index, field_array)
