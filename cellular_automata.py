@@ -2,14 +2,16 @@ import pprint
 import sys
 
 import numpy as np
+from scipy.sparse.csgraph import shortest_path
 from matplotlib import animation
 from matplotlib import pyplot as plt
 
 # <<global status>>
-field_size = 100    # フィールド一辺の大きさ
-nothing = 0         # 空間の配列内での表現値
-ROUTE_COST = 1      # 全セル共通のルートコスト
+field_size    = 100 # フィールド一辺の大きさ
+nothing       = 0   # 空間の配列内での表現値
+ROUTE_COST    = 1   # 全セル共通のルートコスト
 max_lightness = 100 # 最大光量
+nutrisition   = float('inf')
 
 soil = 'soil'
 soil_representation = -1     # 配列内での表現値
@@ -143,7 +145,7 @@ class Cell:
             x, y = self.coordination[:,0], self.coordination[:,-1][0]  #  <-- fixme
             x, y = coordinateTranslator(targetHight, x, y, mode='CARTESIAN2PY')
             yL, yR = y
-            
+        
         upper  = _field_array[x-1,:][yL-1:yR+2]
         center = _field_array[x,  :][yL-1:yR+2]
         lower  = _field_array[x+1,:][yL-1:yR+2]
@@ -227,10 +229,10 @@ def optionalNormalization(data, _m=0, _M=100):
     return ((_M - _m)*(data - x_min) / (x_max - x_min)) + _m
 
 # ノイマン近傍
-def getNeumannNeighborhood(_x, _y, _field_array):
-    neuman_upper  = _field_array[_x-1, _y]
-    neuman_center = (_field_array[_x, _y-1], _field_array[_x, _y+1])
-    neuman_lower  = _field_array[_x+1, _y]
+def getNeumannNeighborhood(x, y, _field_array):
+    neuman_upper  = _field_array[x-1, y]
+    neuman_center = (_field_array[x, y-1], _field_array[x, y+1])
+    neuman_lower  = _field_array[x+1, y]
     return neuman_upper, neuman_center, neuman_lower
 
 
@@ -256,7 +258,7 @@ if __name__ == '__main__':
     fig_ims = []
     fig, ax = plt.subplots()
 
-    try_num = 5000
+    try_num = 500
     try:
         while True:
             # end condition
@@ -281,9 +283,7 @@ if __name__ == '__main__':
                 up, ct, lo = getNeumannNeighborhood(*gld, field_array)
                 ctL, ctR = ct
                 if up==trunk_representation:
-                    # < Coordinates of the upper in field array >
                     upperFieldCoord = gld+[-1,0]
-                    # < Coordinates of the upper in grid array >
                     upperRouteCoord = np.where(np.all(gldCoordination==upperFieldCoord, axis=1) == True)
                     route_array[upperRouteCoord[0][0]][node_num] = 1
                 if lo==trunk_representation:
@@ -305,7 +305,7 @@ if __name__ == '__main__':
             for index, cell in enumerate(cells_list):
                 # update cells and field
                 cells_list, field_array = cell.update(cells_list, index, field_array)
-
+            
             # progress
             print("\r"+"PROGRESS : "+str(seed.age)+" / "+str(try_num), end='')
             # result animation
